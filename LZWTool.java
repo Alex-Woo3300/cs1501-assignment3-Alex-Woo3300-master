@@ -3,9 +3,9 @@ import java.io.*;
 
 public class LZWTool {
 
-    public static void main(String[] args) throws Exception {
+    public static void main(String[] args) {
 
-        String mode = "";
+        String mode = null;
         int minW = 9;
         int maxW = 16;
         String policy = "freeze";
@@ -21,183 +21,182 @@ public class LZWTool {
             }
         }
 
-        if (mode.equals("compress")) compress(minW, maxW, policy, alphabetPath);
-        else expand();
+        if (mode.equals("compress")) {
+            compress(minW, maxW, policy, alphabetPath);
+        } else {
+            expand();
+        }
+    }
+
+    // ================= LOAD ALPHABET =================
+    private static ArrayList<String> loadAlphabet(String path) {
+        ArrayList<String> alphabet = new ArrayList<>();
+        try {
+            Scanner sc = new Scanner(new File(path));
+            while (sc.hasNextLine()) {
+                String line = sc.nextLine();
+                if (!line.isEmpty() && !alphabet.contains(line)) {
+                    alphabet.add(line);
+                }
+            }
+            sc.close();
+        } catch (Exception e) {
+            System.err.println("Error reading alphabet");
+            System.exit(1);
+        }
+
+        alphabet.add("" + (char)10);
+        alphabet.add("" + (char)13);
+
+        return alphabet;
     }
 
     // ================= COMPRESS =================
-    private static void compress(int minW, int maxW, String policy, String alphabetPath) throws Exception {
+    private static void compress(int minW, int maxW, String policy, String alphabetPath) {
 
-        List<Character> alphabet = readAlphabet(alphabetPath);
+        ArrayList<String> alphabet = loadAlphabet(alphabetPath);
 
-        Map<String, Integer> st = new HashMap<>();
-
-        int code = 0;
-        for (char c : alphabet) {
-            st.put("" + c, code++);
+        // write header
+        BinaryStdOut.write(minW);
+        BinaryStdOut.write(maxW);
+        BinaryStdOut.write(policy.equals("reset") ? 1 : 0);
+        BinaryStdOut.write(alphabet.size());
+        for (String s : alphabet) {
+            BinaryStdOut.write(s.charAt(0));
         }
 
-        int EOF = code++;
+        TSTmod<Integer> st = new TSTmod<>();
+
+        int code = 0;
+        for (String s : alphabet) {
+            st.put(new StringBuilder(s), code++);
+        }
+
         int W = minW;
         int L = 1 << W;
 
-        // HEADER
-        BinaryStdOut.write(minW, 8);
-        BinaryStdOut.write(maxW, 8);
-        BinaryStdOut.write(policy.equals("reset") ? 1 : 0, 1);
-        BinaryStdOut.write(alphabet.size(), 16);
-
-        for (char c : alphabet) {
-            BinaryStdOut.write(c, 8);
-        }
-
-        // READ INPUT CORRECTLY
-        StringBuilder sb = new StringBuilder();
+        StringBuilder input = new StringBuilder();
         while (!BinaryStdIn.isEmpty()) {
-            sb.append(BinaryStdIn.readChar());
+            input.append(BinaryStdIn.readChar());
         }
-        String input = sb.toString();
 
-        String w = "";
+        int i = 0;
+        while (i < input.length()) {
 
-        for (int i = 0; i < input.length(); i++) {
-            char c = input.charAt(i);
+            StringBuilder current = new StringBuilder("" + input.charAt(i));
+            int j = i + 1;
 
-            if (st.containsKey(w + c)) {
-                w = w + c;
-            } else {
-                BinaryStdOut.write(st.get(w), W);
+            while (j <= input.length()) {
+                StringBuilder temp = new StringBuilder(current);
+                if (j < input.length()) temp.append(input.charAt(j));
 
-                // HANDLE WIDTH FIRST
-                if (code == L) {
-                    if (W < maxW) {
+                if (j < input.length() && st.contains(temp)) {
+                    current = temp;
+                    j++;
+                } else break;
+            }
+
+            BinaryStdOut.write(st.get(current), W);
+
+            if (j < input.length()) {
+                StringBuilder newEntry = new StringBuilder(current);
+                newEntry.append(input.charAt(j));
+
+                if (code < (1 << maxW)) {
+                    if (code == L && W < maxW) {
                         W++;
                         L = 1 << W;
-                    } else if (policy.equals("reset")) {
-                        st.clear();
+                    }
+
+                    if (code < L) {
+                        st.put(newEntry, code++);
+                    }
+                } else {
+                    if (policy.equals("reset")) {
+                        st = new TSTmod<>();
                         code = 0;
-                        for (char ch : alphabet) {
-                            st.put("" + ch, code++);
+                        for (String s : alphabet) {
+                            st.put(new StringBuilder(s), code++);
                         }
-                        EOF = code++;
                         W = minW;
                         L = 1 << W;
                     }
                 }
-
-                if (code < L) {
-                    st.put(w + c, code++);
-                }
-
-                w = "" + c;
             }
+
+            i += current.length();
         }
 
-        if (!w.equals("")) {
-            BinaryStdOut.write(st.get(w), W);
-        }
-
-        BinaryStdOut.write(EOF, W);
-        BinaryStdOut.flush();
+        BinaryStdOut.close();
     }
 
     // ================= EXPAND =================
     private static void expand() {
 
-        int minW = BinaryStdIn.readInt(8);
-        int maxW = BinaryStdIn.readInt(8);
-        boolean reset = BinaryStdIn.readInt(1) == 1;
+        int minW = BinaryStdIn.readInt();
+        int maxW = BinaryStdIn.readInt();
+        int policyFlag = BinaryStdIn.readInt();
+        String policy = (policyFlag == 1) ? "reset" : "freeze";
 
-        int alphaSize = BinaryStdIn.readInt(16);
-
-        List<String> alphabet = new ArrayList<>();
+        int alphaSize = BinaryStdIn.readInt();
+        ArrayList<String> alphabet = new ArrayList<>();
 
         for (int i = 0; i < alphaSize; i++) {
-            alphabet.add("" + BinaryStdIn.readChar(8));
+            alphabet.add("" + BinaryStdIn.readChar());
         }
 
-        List<String> st = new ArrayList<>(alphabet);
+        ArrayList<String> st = new ArrayList<>();
 
-        int code = st.size();
-        int EOF = code++;
+        for (String s : alphabet) {
+            st.add(s);
+        }
+
         int W = minW;
         int L = 1 << W;
 
-        int prev = BinaryStdIn.readInt(W);
-        if (prev == EOF) return;
+        int code = st.size();
 
-        String val = st.get(prev);
+        int prevCode = BinaryStdIn.readInt(W);
+        String val = st.get(prevCode);
         BinaryStdOut.write(val);
 
-        while (true) {
+        while (!BinaryStdIn.isEmpty()) {
 
-            int curr;
-            try {
-                curr = BinaryStdIn.readInt(W);
-            } catch (Exception e) {
-                break;
-            }
-
-            if (curr == EOF) break;
+            int currCode = BinaryStdIn.readInt(W);
 
             String s;
-
-            if (curr < st.size()) {
-                s = st.get(curr);
+            if (currCode < st.size()) {
+                s = st.get(currCode);
             } else {
                 s = val + val.charAt(0);
             }
 
             BinaryStdOut.write(s);
 
-            // HANDLE WIDTH FIRST
-            if (code == L) {
-                if (W < maxW) {
+            if (code < (1 << maxW)) {
+
+                if (code == L && W < maxW) {
                     W++;
                     L = 1 << W;
-                } else if (reset) {
-                    st.clear();
-                    st.addAll(alphabet);
+                }
+
+                if (code < L) {
+                    st.add(val + s.charAt(0));
+                    code++;
+                }
+
+            } else {
+                if (policy.equals("reset")) {
+                    st = new ArrayList<>(alphabet);
                     code = st.size();
-                    EOF = code++;
                     W = minW;
                     L = 1 << W;
                 }
             }
 
-            if (code < L) {
-                st.add(val + s.charAt(0));
-                code++;
-            }
-
             val = s;
         }
 
-        BinaryStdOut.flush();
-    }
-
-    // ================= ALPHABET =================
-    private static List<Character> readAlphabet(String path) throws Exception {
-
-        List<Character> list = new ArrayList<>();
-        Set<Character> seen = new HashSet<>();
-
-        BufferedReader br = new BufferedReader(new FileReader(path));
-
-        String line;
-        while ((line = br.readLine()) != null) {
-            if (!line.isEmpty()) {
-                char c = line.charAt(0);
-                if (!seen.contains(c)) {
-                    seen.add(c);
-                    list.add(c);
-                }
-            }
-        }
-
-        list.add('\n');
-        list.add('\r');
-
-        return list;
+        BinaryStdOut.close();
     }
 }
