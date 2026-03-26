@@ -30,7 +30,6 @@ public class LZWTool {
         }
     }
 
-    // ================= ALPHABET =================
     private static List<String> loadAlphabet(String path) {
         List<String> alphabet = new ArrayList<>();
         Set<String> seen = new LinkedHashSet<>();
@@ -54,7 +53,6 @@ public class LZWTool {
         return alphabet;
     }
 
-    // ================= HEADER =================
     private static class Header {
         int minW, maxW, alphabetSize;
         String policy;
@@ -90,7 +88,6 @@ public class LZWTool {
         return h;
     }
 
-    // ================= COMPRESS =================
     private static void compress(int minW, int maxW, String policy, List<String> alphabet) {
 
         writeHeader(minW, maxW, policy, alphabet);
@@ -145,7 +142,7 @@ public class LZWTool {
                         code = initialCode;
                         W = minW;
                     }
-                    // freeze → do nothing
+                    
                 }
 
                 current = new StringBuilder().append(c);
@@ -160,7 +157,6 @@ public class LZWTool {
         BinaryStdOut.close();
     }
 
-    // ================= EXPAND =================
     private static void expand() {
 
         Header h = readHeader();
