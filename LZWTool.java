@@ -25,6 +25,7 @@ public class LZWTool {
         else expand();
     }
 
+    // ================= COMPRESS =================
     private static void compress(int minW, int maxW, String policy, String alphabetPath) throws Exception {
 
         List<Character> alphabet = readAlphabet(alphabetPath);
@@ -36,8 +37,7 @@ public class LZWTool {
             st.put("" + c, code++);
         }
 
-        int EOF = code; // ✅ FIXED
-
+        int EOF = code++;
         int W = minW;
         int L = 1 << W;
 
@@ -51,7 +51,12 @@ public class LZWTool {
             BinaryStdOut.write(c, 8);
         }
 
-        String input = BinaryStdIn.readString();
+        // READ INPUT CORRECTLY
+        StringBuilder sb = new StringBuilder();
+        while (!BinaryStdIn.isEmpty()) {
+            sb.append(BinaryStdIn.readChar());
+        }
+        String input = sb.toString();
 
         String w = "";
 
@@ -61,32 +66,27 @@ public class LZWTool {
             if (st.containsKey(w + c)) {
                 w = w + c;
             } else {
-
                 BinaryStdOut.write(st.get(w), W);
 
-                if (code < L) {
-                    st.put(w + c, code++);
-                } else {
+                // HANDLE WIDTH FIRST
+                if (code == L) {
                     if (W < maxW) {
                         W++;
                         L = 1 << W;
-                        st.put(w + c, code++);
                     } else if (policy.equals("reset")) {
-
                         st.clear();
                         code = 0;
-
                         for (char ch : alphabet) {
                             st.put("" + ch, code++);
                         }
-
-                        EOF = code; // reset EOF
-
+                        EOF = code++;
                         W = minW;
                         L = 1 << W;
-
-                        st.put(w + c, code++);
                     }
+                }
+
+                if (code < L) {
+                    st.put(w + c, code++);
                 }
 
                 w = "" + c;
@@ -97,12 +97,11 @@ public class LZWTool {
             BinaryStdOut.write(st.get(w), W);
         }
 
-        BinaryStdOut.write(EOF, W); // ✅ VALID EOF
-
+        BinaryStdOut.write(EOF, W);
         BinaryStdOut.flush();
     }
 
-    
+    // ================= EXPAND =================
     private static void expand() {
 
         int minW = BinaryStdIn.readInt(8);
@@ -120,62 +119,55 @@ public class LZWTool {
         List<String> st = new ArrayList<>(alphabet);
 
         int code = st.size();
-        int EOF = code; // ✅ FIXED
-
+        int EOF = code++;
         int W = minW;
         int L = 1 << W;
 
-        int prevCode = BinaryStdIn.readInt(W);
-        if (prevCode == EOF) return;
+        int prev = BinaryStdIn.readInt(W);
+        if (prev == EOF) return;
 
-        String val = st.get(prevCode);
+        String val = st.get(prev);
         BinaryStdOut.write(val);
 
         while (true) {
 
-            int currCode;
-
+            int curr;
             try {
-                currCode = BinaryStdIn.readInt(W);
+                curr = BinaryStdIn.readInt(W);
             } catch (Exception e) {
                 break;
             }
 
-            if (currCode == EOF) break;
+            if (curr == EOF) break;
 
             String s;
 
-            if (currCode < st.size()) {
-                s = st.get(currCode);
+            if (curr < st.size()) {
+                s = st.get(curr);
             } else {
                 s = val + val.charAt(0);
             }
 
             BinaryStdOut.write(s);
 
-            if (code < L) {
-                st.add(val + s.charAt(0));
-                code++;
-            } else {
+            // HANDLE WIDTH FIRST
+            if (code == L) {
                 if (W < maxW) {
                     W++;
                     L = 1 << W;
-                    st.add(val + s.charAt(0));
-                    code++;
                 } else if (reset) {
-
                     st.clear();
                     st.addAll(alphabet);
-
                     code = st.size();
-                    EOF = code;
-
+                    EOF = code++;
                     W = minW;
                     L = 1 << W;
-
-                    st.add(val + s.charAt(0));
-                    code++;
                 }
+            }
+
+            if (code < L) {
+                st.add(val + s.charAt(0));
+                code++;
             }
 
             val = s;
@@ -184,7 +176,7 @@ public class LZWTool {
         BinaryStdOut.flush();
     }
 
-   
+    // ================= ALPHABET =================
     private static List<Character> readAlphabet(String path) throws Exception {
 
         List<Character> list = new ArrayList<>();
@@ -194,7 +186,7 @@ public class LZWTool {
 
         String line;
         while ((line = br.readLine()) != null) {
-            if (line.length() > 0) {
+            if (!line.isEmpty()) {
                 char c = line.charAt(0);
                 if (!seen.contains(c)) {
                     seen.add(c);
