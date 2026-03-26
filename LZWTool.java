@@ -56,53 +56,56 @@ public class LZWTool {
 
         ArrayList<String> alphabet = loadAlphabet(alphabetPath);
 
-        // write header
-        BinaryStdOut.write(minW);
-        BinaryStdOut.write(maxW);
-        BinaryStdOut.write(policy.equals("reset") ? 1 : 0);
-        BinaryStdOut.write(alphabet.size());
+        // HEADER (fixed)
+        BinaryStdOut.write(minW, 8);
+        BinaryStdOut.write(maxW, 8);
+        BinaryStdOut.write(policy.equals("reset") ? 1 : 0, 1);
+        BinaryStdOut.write(alphabet.size(), 16);
         for (String s : alphabet) {
-            BinaryStdOut.write(s.charAt(0));
+            BinaryStdOut.write(s.charAt(0), 8);
         }
 
         TSTmod<Integer> st = new TSTmod<>();
 
+        int R = alphabet.size(); // EOF
         int code = 0;
+
         for (String s : alphabet) {
             st.put(new StringBuilder(s), code++);
         }
 
+        code = R + 1;
+
         int W = minW;
         int L = 1 << W;
 
-        StringBuilder input = new StringBuilder();
-        while (!BinaryStdIn.isEmpty()) {
-            input.append(BinaryStdIn.readChar());
-        }
+        String input = BinaryStdIn.readString();
 
         int i = 0;
+
         while (i < input.length()) {
 
-            StringBuilder current = new StringBuilder("" + input.charAt(i));
+            StringBuilder s = new StringBuilder("" + input.charAt(i));
             int j = i + 1;
 
             while (j <= input.length()) {
-                StringBuilder temp = new StringBuilder(current);
+                StringBuilder temp = new StringBuilder(s);
                 if (j < input.length()) temp.append(input.charAt(j));
 
                 if (j < input.length() && st.contains(temp)) {
-                    current = temp;
+                    s = temp;
                     j++;
                 } else break;
             }
 
-            BinaryStdOut.write(st.get(current), W);
+            BinaryStdOut.write(st.get(s), W);
 
             if (j < input.length()) {
-                StringBuilder newEntry = new StringBuilder(current);
+                StringBuilder newEntry = new StringBuilder(s);
                 newEntry.append(input.charAt(j));
 
                 if (code < (1 << maxW)) {
+
                     if (code == L && W < maxW) {
                         W++;
                         L = 1 << W;
@@ -111,21 +114,26 @@ public class LZWTool {
                     if (code < L) {
                         st.put(newEntry, code++);
                     }
-                } else {
-                    if (policy.equals("reset")) {
-                        st = new TSTmod<>();
-                        code = 0;
-                        for (String s : alphabet) {
-                            st.put(new StringBuilder(s), code++);
-                        }
-                        W = minW;
-                        L = 1 << W;
+
+                } else if (policy.equals("reset")) {
+
+                    st = new TSTmod<>();
+                    code = 0;
+                    for (String str : alphabet) {
+                        st.put(new StringBuilder(str), code++);
                     }
+
+                    code = R + 1;
+                    W = minW;
+                    L = 1 << W;
                 }
             }
 
-            i += current.length();
+            i += s.length();
         }
+
+        // WRITE EOF
+        BinaryStdOut.write(R, W);
 
         BinaryStdOut.close();
     }
@@ -133,36 +141,41 @@ public class LZWTool {
     // ================= EXPAND =================
     private static void expand() {
 
-        int minW = BinaryStdIn.readInt();
-        int maxW = BinaryStdIn.readInt();
-        int policyFlag = BinaryStdIn.readInt();
+        int minW = BinaryStdIn.readInt(8);
+        int maxW = BinaryStdIn.readInt(8);
+        int policyFlag = BinaryStdIn.readInt(1);
         String policy = (policyFlag == 1) ? "reset" : "freeze";
 
-        int alphaSize = BinaryStdIn.readInt();
-        ArrayList<String> alphabet = new ArrayList<>();
+        int alphaSize = BinaryStdIn.readInt(16);
 
+        ArrayList<String> alphabet = new ArrayList<>();
         for (int i = 0; i < alphaSize; i++) {
-            alphabet.add("" + BinaryStdIn.readChar());
+            alphabet.add("" + BinaryStdIn.readChar(8));
         }
 
-        ArrayList<String> st = new ArrayList<>();
+        int R = alphabet.size();
 
+        ArrayList<String> st = new ArrayList<>();
         for (String s : alphabet) {
             st.add(s);
         }
 
+        int code = R + 1;
+
         int W = minW;
         int L = 1 << W;
 
-        int code = st.size();
-
         int prevCode = BinaryStdIn.readInt(W);
+        if (prevCode == R) return;
+
         String val = st.get(prevCode);
         BinaryStdOut.write(val);
 
-        while (!BinaryStdIn.isEmpty()) {
+        while (true) {
 
             int currCode = BinaryStdIn.readInt(W);
+
+            if (currCode == R) break;
 
             String s;
             if (currCode < st.size()) {
@@ -185,13 +198,12 @@ public class LZWTool {
                     code++;
                 }
 
-            } else {
-                if (policy.equals("reset")) {
-                    st = new ArrayList<>(alphabet);
-                    code = st.size();
-                    W = minW;
-                    L = 1 << W;
-                }
+            } else if (policy.equals("reset")) {
+
+                st = new ArrayList<>(alphabet);
+                code = R + 1;
+                W = minW;
+                L = 1 << W;
             }
 
             val = s;
