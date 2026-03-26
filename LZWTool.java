@@ -1,241 +1,222 @@
 import java.io.*;
 import java.util.*;
- 
+
 public class LZWTool {
- 
-    public static void main(String[] args) throws IOException {
-        String mode         = null;
-        int    minW         = 9;
-        int    maxW         = 16;
-        String policy       = "freeze";
-        String alphabetPath = null;
- 
+
+    public static void main(String[] args) {
+        String mode = null, policy = "freeze", alphabetPath = null;
+        int minW = 9, maxW = 16;
+
         for (int i = 0; i < args.length; i++) {
             switch (args[i]) {
-                case "--mode":     mode         = args[++i]; break;
-                case "--minW":     minW         = Integer.parseInt(args[++i]); break;
-                case "--maxW":     maxW         = Integer.parseInt(args[++i]); break;
-                case "--policy":   policy       = args[++i]; break;
+                case "--mode": mode = args[++i]; break;
+                case "--minW": minW = Integer.parseInt(args[++i]); break;
+                case "--maxW": maxW = Integer.parseInt(args[++i]); break;
+                case "--policy": policy = args[++i]; break;
                 case "--alphabet": alphabetPath = args[++i]; break;
-                default:
-                    System.err.println("Unknown argument: " + args[i]);
-                    System.exit(2);
             }
         }
- 
-        if (mode == null) { System.err.println("--mode required"); System.exit(1); }
- 
+
+        if (mode == null) {
+            System.err.println("Missing --mode");
+            return;
+        }
+
         if (mode.equals("compress")) {
-            if (minW > maxW)          { System.err.println("minW must be <= maxW"); System.exit(1); }
-            if (alphabetPath == null) { System.err.println("--alphabet required"); System.exit(1); }
-            File af = new File(alphabetPath);
-            if (!af.exists())         { System.err.println("Alphabet not found: " + alphabetPath); System.exit(1); }
-            compress(readAlphabet(alphabetPath), minW, maxW, policy);
-        } else if (mode.equals("expand")) {
-            expand();
+            List<String> alphabet = loadAlphabet(alphabetPath);
+            compress(minW, maxW, policy, alphabet);
         } else {
-            System.err.println("--mode must be compress or expand"); System.exit(1);
+            expand();
         }
     }
- 
-    // -------------------------------------------------------------------------
-    // Read alphabet: use Scanner.nextLine() with UTF-8, take charAt(0) cast to byte,
-    // then append LF and CR if not already present.
-    // -------------------------------------------------------------------------
-    private static List<Integer> readAlphabet(String path) throws IOException {
-        LinkedHashSet<Integer> seen = new LinkedHashSet<>();
-        Scanner sc = new Scanner(new File(path), "UTF-8");
-        while (sc.hasNextLine()) {
-            String line = sc.nextLine();
-            if (line.isEmpty()) continue;
-            int b = line.charAt(0) & 0xFF;
-            seen.add(b);
+
+    // ================= ALPHABET =================
+    private static List<String> loadAlphabet(String path) {
+        List<String> alphabet = new ArrayList<>();
+        Set<String> seen = new LinkedHashSet<>();
+
+        try (BufferedReader br = new BufferedReader(new FileReader(path))) {
+            String line;
+            while ((line = br.readLine()) != null) {
+                if (!line.isEmpty()) {
+                    String s = "" + line.charAt(0);
+                    if (seen.add(s)) alphabet.add(s);
+                }
+            }
+        } catch (IOException e) {
+            return null;
         }
-        sc.close();
-        // Append LF (10) and CR (13) if not already present
-        seen.add(10);
-        seen.add(13);
-        return new ArrayList<>(seen);
+
+        // add newline chars
+        if (seen.add("" + (char)10)) alphabet.add("" + (char)10);
+        if (seen.add("" + (char)13)) alphabet.add("" + (char)13);
+
+        return alphabet;
     }
- 
-    // -------------------------------------------------------------------------
-    // COMPRESS
-    //
-    // Width grows when nextCode == (1 << W) and W < maxW.
-    // Eviction fires when nextCode == (1 << maxW).
-    // -------------------------------------------------------------------------
-    private static void compress(List<Integer> alphabet, int minW, int maxW, String policy) {
-        // Write header: minW(1) maxW(1) policy(1) alphabetSize(4) symbols(N bytes)
-        BinaryStdOut.write((char) minW, 8);
-        BinaryStdOut.write((char) maxW, 8);
-        BinaryStdOut.write((char)(policy.equals("reset") ? 1 : 0), 8);
-        BinaryStdOut.write(alphabet.size());
-        for (int b : alphabet) BinaryStdOut.write((char) b, 8);
- 
-        // Mutable state
-        TSTmod<Integer>[] st     = new TSTmod[1];
-        int[]             nextCode = { 0 };
-        int[]             W        = { minW };
-        int               maxCodes = 1 << maxW;
- 
-        Runnable init = () -> {
-            st[0]       = new TSTmod<>();
-            nextCode[0] = 0;
-            W[0]        = minW;
-            for (int b : alphabet) {
-                st[0].put(new StringBuilder("" + (char) b), nextCode[0]++);
-            }
-        };
-        init.run();
- 
-        if (BinaryStdIn.isEmpty()) { BinaryStdOut.flush(); return; }
- 
-        // Read all input bytes
-        StringBuilder input = new StringBuilder();
-        while (!BinaryStdIn.isEmpty()) input.append(BinaryStdIn.readChar());
- 
-        if (input.length() == 0) { BinaryStdOut.flush(); return; }
- 
-        int pos = 0;
-        StringBuilder cur = new StringBuilder();
-        cur.append(input.charAt(pos++));
- 
-        while (true) {
-            // Try to extend cur
-            if (pos < input.length()) {
-                StringBuilder extended = new StringBuilder(cur);
-                extended.append(input.charAt(pos));
-                if (st[0].contains(extended)) {
-                    cur = extended;
-                    pos++;
-                    continue;
-                }
-            }
- 
-            // Output code for cur
-            int codeVal = st[0].get(cur);
-            BinaryStdOut.write(codeVal, W[0]);
-            System.err.println("Wrote code=" + codeVal + " W=" + W[0] + " str=\"" + escape(cur.toString()) + "\"");
- 
-            if (pos >= input.length()) break;
- 
-            // Build new entry = cur + input[pos]
-            StringBuilder newEntry = new StringBuilder(cur);
-            newEntry.append(input.charAt(pos));
- 
-            if (nextCode[0] < maxCodes) {
-                st[0].put(newEntry, nextCode[0]);
-                System.err.println("Added code=" + nextCode[0] + " str=\"" + escape(newEntry.toString()) + "\"");
-                nextCode[0]++;
-                // Grow width if we just filled current width's slots
-                if (nextCode[0] == (1 << W[0]) && W[0] < maxW) {
-                    W[0]++;
-                    System.err.println("Width grew to W=" + W[0]);
-                }
-            } else {
-                // Table full
-                if (policy.equals("reset")) {
-                    System.err.println("Codebook full — RESET");
-                    init.run();
-                    st[0].put(newEntry, nextCode[0]);
-                    System.err.println("After reset, added code=" + nextCode[0]);
-                    nextCode[0]++;
-                } else {
-                    System.err.println("Codebook full — FREEZE");
-                }
-            }
- 
-            cur = new StringBuilder();
-            cur.append(input.charAt(pos));
-            pos++;
-        }
- 
-        BinaryStdOut.flush();
+
+    // ================= HEADER =================
+    private static class Header {
+        int minW, maxW, alphabetSize;
+        String policy;
+        List<String> alphabet;
     }
- 
-    // -------------------------------------------------------------------------
-    // EXPAND
-    // -------------------------------------------------------------------------
-    private static void expand() {
-        // Read header
-        int minW         = BinaryStdIn.readChar(8);
-        int maxW         = BinaryStdIn.readChar(8);
-        int polByte      = BinaryStdIn.readChar(8);
-        String policy    = (polByte == 1) ? "reset" : "freeze";
-        int alphabetSize = BinaryStdIn.readInt();
- 
-        List<Integer> alphabet = new ArrayList<>();
-        for (int i = 0; i < alphabetSize; i++) {
-            alphabet.add((int) BinaryStdIn.readChar(8));
+
+    private static void writeHeader(int minW, int maxW, String policy, List<String> alphabet) {
+        BinaryStdOut.write(minW, 8);
+        BinaryStdOut.write(maxW, 8);
+
+        int p = policy.equals("reset") ? 1 : 0;
+        BinaryStdOut.write(p, 8);
+
+        BinaryStdOut.write(alphabet.size(), 16);
+        for (String s : alphabet)
+            BinaryStdOut.write(s.charAt(0), 8);
+    }
+
+    private static Header readHeader() {
+        Header h = new Header();
+        h.minW = BinaryStdIn.readInt(8);
+        h.maxW = BinaryStdIn.readInt(8);
+
+        int p = BinaryStdIn.readInt(8);
+        h.policy = (p == 1) ? "reset" : "freeze";
+
+        h.alphabetSize = BinaryStdIn.readInt(16);
+        h.alphabet = new ArrayList<>();
+
+        for (int i = 0; i < h.alphabetSize; i++)
+            h.alphabet.add("" + BinaryStdIn.readChar(8));
+
+        return h;
+    }
+
+    // ================= COMPRESS =================
+    private static void compress(int minW, int maxW, String policy, List<String> alphabet) {
+
+        writeHeader(minW, maxW, policy, alphabet);
+
+        TSTmod<Integer> st = new TSTmod<>();
+
+        int alphabetSize = alphabet.size();
+        int code = 0;
+
+        for (String s : alphabet)
+            st.put(new StringBuilder(s), code++);
+
+        int EOF = code++;
+        int RESET = policy.equals("reset") ? code++ : -1;
+        int initialCode = code;
+
+        int W = minW;
+        int maxCode = 1 << maxW;
+
+        if (BinaryStdIn.isEmpty()) {
+            BinaryStdOut.close();
+            return;
         }
- 
-        System.err.println("Header: minW=" + minW + " maxW=" + maxW
-                + " policy=" + policy + " alphabetSize=" + alphabetSize);
- 
-        int maxCodes    = 1 << maxW;
-        String[] table  = new String[maxCodes];
-        int[]  nextCode = { 0 };
-        int[]  W        = { minW };
- 
-        Runnable initTable = () -> {
-            Arrays.fill(table, null);
-            nextCode[0] = 0;
-            W[0]        = minW;
-            for (int b : alphabet) table[nextCode[0]++] = "" + (char)(b & 0xFF);
-        };
-        initTable.run();
- 
-        if (BinaryStdIn.isEmpty()) { BinaryStdOut.flush(); return; }
- 
-        // First code
-        int    codeVal = BinaryStdIn.readInt(W[0]);
-        String entry   = table[codeVal];
-        if (entry == null) throw new RuntimeException("Bad first code: " + codeVal);
- 
-        BinaryStdOut.write(entry);
-        System.err.println("Read code=" + codeVal + " W=" + W[0] + " -> \"" + escape(entry) + "\"");
-        String prev = entry;
- 
+
+        StringBuilder current = new StringBuilder();
+        current.append(BinaryStdIn.readChar());
+
         while (!BinaryStdIn.isEmpty()) {
-            codeVal = BinaryStdIn.readInt(W[0]);
-            System.err.println("Read code=" + codeVal + " W=" + W[0]);
- 
-            if (table[codeVal] != null) {
-                entry = table[codeVal];
-            } else if (codeVal == nextCode[0]) {
-                entry = prev + prev.charAt(0);
+            char c = BinaryStdIn.readChar();
+
+            StringBuilder next = new StringBuilder(current).append(c);
+
+            if (st.contains(next)) {
+                current.append(c);
             } else {
-                throw new RuntimeException("Unexpected code: " + codeVal + " next=" + nextCode[0]);
-            }
- 
-            BinaryStdOut.write(entry);
-            System.err.println("Decoded \"" + escape(entry) + "\"");
- 
-            if (nextCode[0] < maxCodes) {
-                String newEntry = prev + entry.charAt(0);
-                table[nextCode[0]] = newEntry;
-                System.err.println("Added code=" + nextCode[0] + " -> \"" + escape(newEntry) + "\"");
-                nextCode[0]++;
-                if (nextCode[0] == (1 << W[0]) && W[0] < maxW) {
-                    W[0]++;
-                    System.err.println("Width grew to W=" + W[0]);
+                BinaryStdOut.write(st.get(current), W);
+
+                if (code < maxCode) {
+                    if (code >= (1 << W) && W < maxW) W++;
+                    st.put(next, code++);
                 }
-            } else {
-                if (policy.equals("reset")) {
-                    System.err.println("Codebook full — RESET");
-                    initTable.run();
-                } else {
-                    System.err.println("Codebook full — FREEZE");
+                else {
+                    if (policy.equals("reset")) {
+                        if (code >= (1 << W) && W < maxW) W++;
+
+                        BinaryStdOut.write(RESET, W);
+
+                        st = new TSTmod<>();
+                        for (int i = 0; i < alphabetSize; i++)
+                            st.put(new StringBuilder(alphabet.get(i)), i);
+
+                        code = initialCode;
+                        W = minW;
+                    }
+                    // freeze → do nothing
                 }
+
+                current = new StringBuilder().append(c);
             }
- 
-            prev = entry;
         }
- 
-        BinaryStdOut.flush();
+
+        BinaryStdOut.write(st.get(current), W);
+
+        if (code >= (1 << W) && W < maxW) W++;
+
+        BinaryStdOut.write(EOF, W);
+        BinaryStdOut.close();
     }
- 
-    private static String escape(String s) {
-        return s.replace("\n", "\\n").replace("\r", "\\r");
+
+    // ================= EXPAND =================
+    private static void expand() {
+
+        Header h = readHeader();
+
+        int alphabetSize = h.alphabetSize;
+        int maxCode = 1 << h.maxW;
+
+        String[] st = new String[maxCode];
+
+        for (int i = 0; i < alphabetSize; i++)
+            st[i] = h.alphabet.get(i);
+
+        int EOF = alphabetSize;
+        int RESET = h.policy.equals("reset") ? alphabetSize + 1 : -1;
+
+        int code = h.policy.equals("reset") ? alphabetSize + 2 : alphabetSize + 1;
+
+        int W = h.minW;
+
+        int prev = BinaryStdIn.readInt(W);
+        if (prev == EOF) return;
+
+        String val = st[prev];
+        BinaryStdOut.write(val);
+
+        while (true) {
+
+            if (code >= (1 << W) && W < h.maxW) W++;
+
+            int curr = BinaryStdIn.readInt(W);
+            if (curr == EOF) break;
+
+            if (h.policy.equals("reset") && curr == RESET) {
+                Arrays.fill(st, alphabetSize, st.length, null);
+                code = alphabetSize + 2;
+                W = h.minW;
+
+                curr = BinaryStdIn.readInt(W);
+                if (curr == EOF) break;
+
+                val = st[curr];
+                BinaryStdOut.write(val);
+                continue;
+            }
+
+            String s = st[curr];
+            if (s == null) s = val + val.charAt(0);
+
+            BinaryStdOut.write(s);
+
+            if (code < maxCode)
+                st[code++] = val + s.charAt(0);
+
+            val = s;
+        }
+
+        BinaryStdOut.close();
     }
 }
